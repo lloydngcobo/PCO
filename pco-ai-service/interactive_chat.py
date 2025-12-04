@@ -8,6 +8,21 @@ import requests
 import json
 from datetime import datetime
 import sys
+import os
+from dotenv import load_dotenv
+import pypco
+
+# Load environment variables
+load_dotenv()
+
+# Initialize PCO client for direct API calls
+PCO_APP_ID = os.getenv("PCO_APP_ID")
+PCO_SECRET = os.getenv("PCO_SECRET")
+
+if PCO_APP_ID and PCO_SECRET:
+    pco = pypco.PCO(PCO_APP_ID, PCO_SECRET)
+else:
+    pco = None
 
 def chat(message, session_id):
     """Send message to AI and return response"""
@@ -53,22 +68,32 @@ def add_person(first_name, last_name, gender=None, birthdate=None, email=None):
         if result.get("id") and result.get("data"):
             result["success"] = True
             
-            # If email provided, add it
-            if email:
+            # If email provided and we have PCO credentials, add it directly
+            if email and pco:
                 person_id = result["id"]
-                email_url = f"http://localhost:5000/api/people/{person_id}/emails"
-                email_payload = {
-                    "email_address": email,
-                    "location": "Home"
-                }
                 try:
-                    email_response = requests.post(email_url, json=email_payload, timeout=30)
-                    if email_response.status_code == 200:
+                    # Create email payload
+                    email_payload = pco.template('Email', {
+                        'address': email,
+                        'location': 'Home'
+                    })
+                    
+                    # Add email to person
+                    email_response = pco.post(
+                        f'/people/v2/people/{person_id}/emails',
+                        email_payload
+                    )
+                    
+                    if email_response and email_response.get('data'):
                         result["email_added"] = True
+                        result["email_data"] = email_response['data']
                     else:
-                        result["email_error"] = f"Failed to add email: {email_response.text}"
+                        result["email_error"] = "Email endpoint returned no data"
+                        
                 except Exception as e:
                     result["email_error"] = f"Failed to add email: {str(e)}"
+            elif email and not pco:
+                result["email_error"] = "PCO credentials not configured in .env file"
         else:
             result["success"] = False
             if not result.get("error"):
