@@ -24,6 +24,107 @@ def chat(message, session_id):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+def add_person(first_name, last_name, gender=None, birthdate=None, email=None):
+    """Add a new person to PCO"""
+    url = "http://localhost:5000/api/people"
+    payload = {
+        "first_name": first_name,
+        "last_name": last_name
+    }
+    
+    if gender:
+        payload["gender"] = gender
+    if birthdate:
+        payload["birthdate"] = birthdate
+    
+    try:
+        response = requests.post(url, json=payload, timeout=30)
+        result = response.json()
+        
+        # If email provided and person created successfully, add email
+        if email and result.get("success") and result.get("data"):
+            person_id = result["data"]["id"]
+            email_url = f"http://localhost:5000/api/people/{person_id}/emails"
+            email_payload = {
+                "email_address": email,
+                "location": "Home"
+            }
+            email_response = requests.post(email_url, json=email_payload, timeout=30)
+            email_result = email_response.json()
+            
+            if email_result.get("success"):
+                result["email_added"] = True
+        
+        return result
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "Cannot connect to PCO API at http://localhost:5000"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def interactive_add_person():
+    """Interactive wizard to add a new person"""
+    print("\n" + "=" * 70)
+    print("👤 Add New Person to PCO")
+    print("=" * 70)
+    print("Please provide the following information:")
+    print("-" * 70 + "\n")
+    
+    # Get required fields
+    first_name = input("First Name (required): ").strip()
+    if not first_name:
+        print("❌ First name is required!")
+        return
+    
+    last_name = input("Last Name (required): ").strip()
+    if not last_name:
+        print("❌ Last name is required!")
+        return
+    
+    # Get optional fields
+    gender = input("Gender (Male/Female/optional): ").strip() or None
+    birthdate = input("Birthdate (YYYY-MM-DD/optional): ").strip() or None
+    email = input("Email (optional): ").strip() or None
+    
+    # Confirm
+    print("\n" + "-" * 70)
+    print("📋 Review Information:")
+    print("-" * 70)
+    print(f"Name: {first_name} {last_name}")
+    if gender:
+        print(f"Gender: {gender}")
+    if birthdate:
+        print(f"Birthdate: {birthdate}")
+    if email:
+        print(f"Email: {email}")
+    print("-" * 70)
+    
+    confirm = input("\nAdd this person? (yes/no): ").strip().lower()
+    if confirm not in ['yes', 'y']:
+        print("❌ Cancelled\n")
+        return
+    
+    # Add person
+    print("\n⏳ Adding person to PCO...", end="", flush=True)
+    result = add_person(first_name, last_name, gender, birthdate, email)
+    print("\r" + " " * 40 + "\r", end="", flush=True)
+    
+    if result.get("success"):
+        print("=" * 70)
+        print("✅ Person Added Successfully!")
+        print("=" * 70)
+        person_data = result.get("data", {})
+        print(f"\nPerson ID: {person_data.get('id')}")
+        print(f"Name: {person_data.get('attributes', {}).get('name')}")
+        if result.get("email_added"):
+            print(f"Email: {email} (added)")
+        print("\n" + "=" * 70 + "\n")
+    else:
+        print("=" * 70)
+        print("❌ Failed to Add Person")
+        print("=" * 70)
+        print(f"\nError: {result.get('error')}\n")
+        print("=" * 70 + "\n")
+
 def get_context(session_id):
     """Get conversation context"""
     url = f"http://localhost:5001/api/ai/chat/context/{session_id}"
@@ -47,16 +148,18 @@ def print_help():
     print("\n" + "=" * 70)
     print("📚 Available Commands:")
     print("=" * 70)
-    print("  /help     - Show this help message")
-    print("  /new      - Start a new session")
-    print("  /context  - Show conversation history")
-    print("  /clear    - Clear conversation history")
-    print("  /quit     - Exit the chat")
-    print("  /exit     - Exit the chat")
+    print("  /help       - Show this help message")
+    print("  /new        - Start a new session")
+    print("  /context    - Show conversation history")
+    print("  /clear      - Clear conversation history")
+    print("  /addperson  - Add a new person to PCO")
+    print("  /quit       - Exit the chat")
+    print("  /exit       - Exit the chat")
     print("\n💡 Tips:")
     print("  - Ask questions about your church members and services")
     print("  - The AI remembers your conversation within a session")
     print("  - Use /new to start fresh on a different topic")
+    print("  - Use /addperson to quickly add new members")
     print("=" * 70 + "\n")
 
 def main():
@@ -118,6 +221,10 @@ def main():
                         print("\n✅ Conversation history cleared!\n")
                     else:
                         print(f"\n❌ Error: {result.get('error')}\n")
+                    continue
+                
+                elif command == '/addperson':
+                    interactive_add_person()
                     continue
                 
                 else:
