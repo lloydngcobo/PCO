@@ -40,8 +40,8 @@ def add_person(first_name, last_name, gender=None, birthdate=None, email=None):
     try:
         response = requests.post(url, json=payload, timeout=30)
         
-        # Check HTTP status code
-        if response.status_code != 200:
+        # Check HTTP status code (200 OK or 201 Created are both success)
+        if response.status_code not in [200, 201]:
             return {
                 "success": False,
                 "error": f"HTTP {response.status_code}: {response.text}"
