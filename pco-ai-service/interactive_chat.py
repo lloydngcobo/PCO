@@ -39,21 +39,40 @@ def add_person(first_name, last_name, gender=None, birthdate=None, email=None):
     
     try:
         response = requests.post(url, json=payload, timeout=30)
+        
+        # Check HTTP status code
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}: {response.text}"
+            }
+        
         result = response.json()
         
-        # If email provided and person created successfully, add email
-        if email and result.get("success") and result.get("data"):
-            person_id = result["data"]["id"]
-            email_url = f"http://localhost:5000/api/people/{person_id}/emails"
-            email_payload = {
-                "email_address": email,
-                "location": "Home"
-            }
-            email_response = requests.post(email_url, json=email_payload, timeout=30)
-            email_result = email_response.json()
+        # Check if person was created (API returns id and data)
+        if result.get("id") and result.get("data"):
+            result["success"] = True
             
-            if email_result.get("success"):
-                result["email_added"] = True
+            # If email provided, add it
+            if email:
+                person_id = result["id"]
+                email_url = f"http://localhost:5000/api/people/{person_id}/emails"
+                email_payload = {
+                    "email_address": email,
+                    "location": "Home"
+                }
+                try:
+                    email_response = requests.post(email_url, json=email_payload, timeout=30)
+                    if email_response.status_code == 200:
+                        result["email_added"] = True
+                    else:
+                        result["email_error"] = f"Failed to add email: {email_response.text}"
+                except Exception as e:
+                    result["email_error"] = f"Failed to add email: {str(e)}"
+        else:
+            result["success"] = False
+            if not result.get("error"):
+                result["error"] = "Unknown error - no person ID returned"
         
         return result
     except requests.exceptions.ConnectionError:
@@ -113,16 +132,25 @@ def interactive_add_person():
         print("✅ Person Added Successfully!")
         print("=" * 70)
         person_data = result.get("data", {})
-        print(f"\nPerson ID: {person_data.get('id')}")
-        print(f"Name: {person_data.get('attributes', {}).get('name')}")
+        person_attrs = person_data.get("attributes", {}) if isinstance(person_data, dict) else {}
+        print(f"\nPerson ID: {result.get('id')}")
+        print(f"Name: {person_attrs.get('name', f'{first_name} {last_name}')}")
+        print(f"Status: {person_attrs.get('status', 'active')}")
+        
         if result.get("email_added"):
-            print(f"Email: {email} (added)")
+            print(f"✅ Email: {email} (added successfully)")
+        elif result.get("email_error"):
+            print(f"⚠️  Email: {result.get('email_error')}")
+        elif email:
+            print(f"ℹ️  Email: {email} (not added)")
+            
         print("\n" + "=" * 70 + "\n")
     else:
         print("=" * 70)
         print("❌ Failed to Add Person")
         print("=" * 70)
-        print(f"\nError: {result.get('error')}\n")
+        error_msg = result.get('error', 'Unknown error occurred')
+        print(f"\nError: {error_msg}\n")
         print("=" * 70 + "\n")
 
 def get_context(session_id):
