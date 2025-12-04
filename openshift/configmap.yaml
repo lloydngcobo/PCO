@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pco-api-wrapper-config
+  labels:
+    app: pco-api-wrapper
+data:
+  FLASK_HOST: "0.0.0.0"
+  FLASK_PORT: "8080"
+  FLASK_DEBUG: "False"
+  LOG_LEVEL: "INFO"

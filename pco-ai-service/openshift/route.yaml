@@ -1,0 +1,18 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pco-ai-service
+  labels:
+    app: pco-ai-service
+    component: ai-service
+spec:
+  to:
+    kind: Service
+    name: pco-ai-service
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

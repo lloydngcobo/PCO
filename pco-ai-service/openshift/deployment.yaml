@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pco-ai-service
+  labels:
+    app: pco-ai-service
+    component: ai-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pco-ai-service
+  template:
+    metadata:
+      labels:
+        app: pco-ai-service
+        component: ai-service
+    spec:
+      containers:
+      - name: pco-ai-service
+        image: pco-ai-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5001
+          protocol: TCP
+        env:
+        - name: FLASK_HOST
+          value: "0.0.0.0"
+        - name: FLASK_PORT
+          value: "5001"
+        - name: FLASK_DEBUG
+          value: "False"
+        - name: PCO_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pco-ai-config
+              key: pco_api_url
+        - name: OLLAMA_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: pco-ai-config
+              key: ollama_api_url
+        - name: OLLAMA_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: pco-ai-config
+              key: ollama_model
+        - name: VERIFY_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: pco-ai-config
+              key: verify_ssl
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      restartPolicy: Always

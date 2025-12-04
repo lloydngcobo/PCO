@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pco-ai-config
+  labels:
+    app: pco-ai-service
+    component: ai-service
+data:
+  # PCO API Wrapper URL - Internal service communication
+  # Using the external route since both are in same cluster
+  pco_api_url: "https://pco-api-wrapper-pco-api-wrapper.apps.homelab.home.nl"
+  
+  # SSL Verification - Set to false for self-signed certificates
+  verify_ssl: "false"
+  
+  # Ollama Configuration
+  # Option 1: If Ollama is deployed in OpenShift, use internal service
+  # ollama_api_url: "http://ollama:11434/api/generate"
+  # Option 2: If Ollama is external, use external URL
+  ollama_api_url: "http://ollama.pco-system.svc.cluster.local:11434/api/generate"
+  ollama_model: "llama3.1:8b"

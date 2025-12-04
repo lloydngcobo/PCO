@@ -1,0 +1,395 @@
+"""
+PCO API Wrapper - Flask REST API
+Provides REST endpoints for accessing Planning Center Online data
+"""
+
+from dotenv import load_dotenv
+import os
+import pypco
+from flask import Flask, request, jsonify
+from typing import Optional, List, Dict, Any
+
+# Load environment variables
+load_dotenv()
+
+# Flask app setup
+app = Flask(__name__)
+
+# Planning Center API credentials from environment variables
+PCO_APP_ID = os.getenv("PCO_APP_ID")
+PCO_SECRET = os.getenv("PCO_SECRET")
+
+# Validate environment variables
+if not PCO_APP_ID or not PCO_SECRET:
+    raise ValueError("PCO_APP_ID and PCO_SECRET must be set in the .env file")
+
+# Initialize PCO client
+pco = pypco.PCO(PCO_APP_ID, PCO_SECRET)
+
+
+def fetch_people_data(role: Optional[str] = None, 
+                     status: Optional[str] = None,
+                     campus_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Fetch people from PCO with optional filtering.
+    
+    Args:
+        role: Filter by membership role
+        status: Filter by status (active, inactive, etc.)
+        campus_id: Filter by campus ID
+        
+    Returns:
+        List of people dictionaries with their attributes
+    """
+    people_data = []
+    campus_mapping = {}
+
+    try:
+        # Step 1: Fetch campus mapping
+        print("Fetching campus data...")
+        for campus in pco.iterate('/people/v2/campuses'):
+            campus_id_val = campus['data']['id']
+            campus_name = campus['data']['attributes'].get('name', 'N/A')
+            campus_mapping[campus_id_val] = campus_name
+
+        print(f"Loaded {len(campus_mapping)} campuses")
+
+        # Step 2: Fetch people data with pagination
+        print("Fetching people data...")
+        for person in pco.iterate('/people/v2/people', include='emails,phone_numbers'):
+            attributes = person['data']['attributes']
+            
+            # Apply filters
+            membership = attributes.get('membership', '')
+            person_status = attributes.get('status', 'N/A')
+            
+            # Filter by role if specified
+            if role and (not membership or role.lower() not in membership.lower()):
+                continue
+            
+            # Filter by status if specified
+            if status and person_status.lower() != status.lower():
+                continue
+            
+            # Get campus information from relationships
+            campuses = []
+            relationships = person['data'].get('relationships', {})
+            campus_data = relationships.get('primary_campus', {}).get('data')
+            
+            if campus_data:
+                campus_id_val = campus_data.get('id')
+                if campus_id_val:
+                    # Filter by campus if specified
+                    if campus_id and campus_id_val != campus_id:
+                        continue
+                    campus_name = campus_mapping.get(campus_id_val, 'N/A')
+                    campuses.append(campus_name)
+            
+            # Get emails from included data
+            emails = []
+            for included in person.get('included', []):
+                if included.get('type') == 'Email':
+                    emails.append({
+                        'address': included['attributes'].get('address'),
+                        'location': included['attributes'].get('location')
+                    })
+            
+            # Append person data
+            people_data.append({
+                'id': person['data']['id'],
+                'first_name': attributes.get('first_name', 'N/A'),
+                'last_name': attributes.get('last_name', 'N/A'),
+                'gender': attributes.get('gender', 'N/A'),
+                'birthdate': attributes.get('birthdate', 'N/A'),
+                'membership': membership,
+                'status': person_status,
+                'campuses': ', '.join(campuses) if campuses else 'N/A',
+                'emails': emails,
+                'created_at': attributes.get('created_at'),
+                'updated_at': attributes.get('updated_at')
+            })
+
+    except Exception as e:
+        print(f"Error while fetching people data: {e}")
+        raise
+
+    return people_data
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'PCO API Wrapper',
+        'version': '1.0.0'
+    })
+
+
+@app.route('/api/people', methods=['GET'])
+def get_people():
+    """
+    Fetch people from PCO with optional filtering.
+    
+    Query Parameters:
+        role (str): Filter by membership role
+        status (str): Filter by status (active, inactive)
+        campus_id (str): Filter by campus ID
+        format (str): Response format (json or text, default: json)
+    
+    Returns:
+        JSON response with people data
+    """
+    try:
+        # Get query parameters
+        role = request.args.get('role')
+        status = request.args.get('status')
+        campus_id = request.args.get('campus_id')
+        response_format = request.args.get('format', 'json').lower()
+        
+        # Fetch people data
+        people_data = fetch_people_data(role, status, campus_id)
+        
+        # Format response based on requested format
+        if response_format == 'text':
+            # Text format for easy reading
+            context = "\n".join([
+                f"{person['first_name']} {person['last_name']}, "
+                f"Gender: {person['gender']}, "
+                f"Birthdate: {person['birthdate']}, "
+                f"Membership: {person['membership']}, "
+                f"Status: {person['status']}, "
+                f"Campuses: {person['campuses']}"
+                for person in people_data
+            ])
+            
+            return jsonify({
+                'count': len(people_data),
+                'filters': {
+                    'role': role,
+                    'status': status,
+                    'campus_id': campus_id
+                },
+                'context': context
+            })
+        else:
+            # JSON format (default)
+            return jsonify({
+                'count': len(people_data),
+                'filters': {
+                    'role': role,
+                    'status': status,
+                    'campus_id': campus_id
+                },
+                'data': people_data
+            })
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({
+            'error': f"An error occurred: {str(e)}"
+        }), 500
+
+
+@app.route('/api/people/<person_id>', methods=['GET'])
+def get_person(person_id: str):
+    """
+    Get a specific person by ID.
+    
+    Args:
+        person_id: The person's PCO ID
+        
+    Returns:
+        JSON response with person data
+    """
+    try:
+        person = pco.get(f'/people/v2/people/{person_id}', include='emails,phone_numbers')
+        
+        if not person:
+            return jsonify({'error': 'Person not found'}), 404
+        
+        attributes = person['data']['attributes']
+        
+        # Get emails from included data
+        emails = []
+        for included in person.get('included', []):
+            if included.get('type') == 'Email':
+                emails.append({
+                    'id': included['id'],
+                    'address': included['attributes'].get('address'),
+                    'location': included['attributes'].get('location')
+                })
+        
+        return jsonify({
+            'id': person['data']['id'],
+            'first_name': attributes.get('first_name'),
+            'last_name': attributes.get('last_name'),
+            'gender': attributes.get('gender'),
+            'birthdate': attributes.get('birthdate'),
+            'membership': attributes.get('membership'),
+            'status': attributes.get('status'),
+            'emails': emails,
+            'created_at': attributes.get('created_at'),
+            'updated_at': attributes.get('updated_at')
+        })
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/people', methods=['POST'])
+def create_person():
+    """
+    Create a new person in PCO.
+    
+    Request Body (JSON):
+        {
+            "first_name": "John",
+            "last_name": "Doe",
+            "gender": "Male",  // Optional
+            "birthdate": "1990-01-01"  // Optional
+        }
+        
+    Returns:
+        JSON response with created person data
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'first_name' not in data or 'last_name' not in data:
+            return jsonify({
+                'error': 'first_name and last_name are required'
+            }), 400
+        
+        # Create payload
+        attributes = {
+            'first_name': data['first_name'],
+            'last_name': data['last_name']
+        }
+        
+        if 'gender' in data:
+            attributes['gender'] = data['gender']
+        if 'birthdate' in data:
+            attributes['birthdate'] = data['birthdate']
+        
+        payload = pco.template('Person', attributes)
+        
+        # Create person
+        new_person = pco.post('/people/v2/people', payload)
+        
+        return jsonify({
+            'message': 'Person created successfully',
+            'id': new_person['data']['id'],
+            'data': new_person['data']['attributes']
+        }), 201
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/people/<person_id>', methods=['PATCH'])
+def update_person(person_id: str):
+    """
+    Update a person's attributes.
+    
+    Args:
+        person_id: The person's PCO ID
+        
+    Request Body (JSON):
+        {
+            "first_name": "Jane",  // Optional
+            "gender": "Female",    // Optional
+            "birthdate": "1990-01-01"  // Optional
+        }
+        
+    Returns:
+        JSON response with updated person data
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Create payload with provided attributes
+        payload = pco.template('Person', data)
+        
+        # Update person
+        updated_person = pco.patch(f'/people/v2/people/{person_id}', payload)
+        
+        return jsonify({
+            'message': 'Person updated successfully',
+            'id': updated_person['data']['id'],
+            'data': updated_person['data']['attributes']
+        })
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/people/<person_id>', methods=['DELETE'])
+def delete_person(person_id: str):
+    """
+    Delete a person from PCO.
+    
+    Args:
+        person_id: The person's PCO ID
+        
+    Returns:
+        JSON response confirming deletion
+    """
+    try:
+        pco.delete(f'/people/v2/people/{person_id}')
+        
+        return jsonify({
+            'message': 'Person deleted successfully',
+            'id': person_id
+        })
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/campuses', methods=['GET'])
+def get_campuses():
+    """
+    Get all campuses from PCO.
+    
+    Returns:
+        JSON response with campus data
+    """
+    try:
+        campuses = []
+        
+        for campus in pco.iterate('/people/v2/campuses'):
+            campuses.append({
+                'id': campus['data']['id'],
+                'name': campus['data']['attributes'].get('name'),
+                'description': campus['data']['attributes'].get('description'),
+                'created_at': campus['data']['attributes'].get('created_at')
+            })
+        
+        return jsonify({
+            'count': len(campuses),
+            'data': campuses
+        })
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+if __name__ == "__main__":
+    # Get configuration from environment
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    port = int(os.getenv("FLASK_PORT", "5000"))
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    
+    print(f"Starting PCO API Wrapper on {host}:{port}")
+    print(f"Debug mode: {debug_mode}")
+    
+    app.run(host=host, port=port, debug=debug_mode)

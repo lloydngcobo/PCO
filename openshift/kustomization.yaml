@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pco-api-wrapper
+
+resources:
+  - configmap.yaml
+  - secret.yaml
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
+
+commonLabels:
+  app: pco-api-wrapper
+  managed-by: kustomize
+
+images:
+  - name: pco-api-wrapper
+    newName: image-registry.openshift-image-registry.svc:5000/pco-api-wrapper/pco-api-wrapper
+    newTag: latest

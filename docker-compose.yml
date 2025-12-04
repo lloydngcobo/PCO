@@ -1,0 +1,9 @@
+services:
+  pco-api-wrapper:
+    image: your-dockerhub-username/pco-api-wrapper:latest
+    ports:
+      - "8000:8080"
+    env_file:
+      - docker.env
+    restart: unless-stopped
+

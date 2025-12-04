@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pco-system
+
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
+
+commonLabels:
+  app.kubernetes.io/name: pco-ai-service
+  app.kubernetes.io/part-of: pco-system
+  app.kubernetes.io/component: ai-service
